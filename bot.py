@@ -235,7 +235,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("💬 Написать мне", url=DIAGNOSTIC_LINK)]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            # Редактируем сообщение с проверкой подписки, так как это не меню, а отдельное сообщение
             await query.edit_message_text(
                 "🌺 Супер! Подписка подтверждена! Теперь все материалы твои 🌸\n\nВыбери, что хочешь получить:",
                 reply_markup=reply_markup
@@ -260,7 +259,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Подпишись и нажми «Проверить подписку», и мы продолжим 🌹", reply_markup=reply_markup)
         return
 
-    # Обработка кнопок главного меню – НЕ редактируем само меню
     if data == "checklist":
         await send_checklist(update, context)
     elif data == "challenge":
@@ -272,7 +270,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("Неизвестная команда 🤔")
 
-# --- Чек-лист (отправляем новое сообщение, не трогаем меню) ---
+# --- Чек-лист ---
 async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -340,7 +338,8 @@ async def send_challenge_intro(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     await context.bot.send_message(chat_id=chat_id, text=intro_text)
     await asyncio.sleep(2)
-    # Теперь запускаем тест
+    # Инициализируем хранение id фидбека
+    context.user_data['last_feedback_id'] = None
     await send_question(update, context, question_index=0)
 
 # --- Запуск челленджа (единая точка входа) ---
@@ -353,7 +352,6 @@ async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_T
         user = get_user(user_id)
 
     if not await is_subscribed(context.bot, user_id):
-        # Если отписан – отправляем новое сообщение
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="⚠️ Ты отписалась от канала. Подпишись, чтобы начать челлендж 🌸"
@@ -375,7 +373,6 @@ async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     update_user(user_id, challenge_started=1, score=0, track=0, current_day=0, start_time=datetime.now(), finished=0)
-    # Отправляем вводное сообщение и начинаем тест
     await send_challenge_intro(update, context)
 
 # --- Вопросы теста ---
@@ -465,8 +462,22 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     new_score = user['score'] + points
     update_user(user_id, score=new_score)
 
-    # Редактируем сообщение вопроса, показываем фидбек
+    # Удаляем предыдущий фидбек, если он есть
+    last_feedback_id = context.user_data.get('last_feedback_id')
+    if last_feedback_id:
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=last_feedback_id
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось удалить предыдущий фидбек: {e}")
+        context.user_data['last_feedback_id'] = None
+
+    # Редактируем текущее сообщение в фидбек
     await query.edit_message_text(f"✅ Выбрано: {questions[q_idx]['options'][int(opt_idx)][0]}")
+    # Сохраняем его id для последующего удаления
+    context.user_data['last_feedback_id'] = query.message.message_id
 
     if q_idx + 1 < len(questions):
         await asyncio.sleep(1.5)
@@ -477,6 +488,7 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             chat_id=update.effective_chat.id,
             text="🌸 Тест завершён! Сейчас я скажу, какой трек тебе подходит 💖"
         )
+        # Фидбек последнего вопроса остаётся
         await asyncio.sleep(2)
         await process_test_result(update, context)
 
