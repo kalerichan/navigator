@@ -3,7 +3,6 @@ import asyncio
 import sqlite3
 import os
 from datetime import datetime, timedelta
-from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -11,14 +10,13 @@ from apscheduler.triggers.date import DateTrigger
 
 # ================== ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ==================
 TOKEN = os.environ.get('BOT_TOKEN')
-CHANNEL_ID = os.environ.get('CHANNEL_ID', '@kalerichan')  # можно задать по умолчанию
+CHANNEL_ID = os.environ.get('CHANNEL_ID', '@kalerichan')
 DIAGNOSTIC_LINK = os.environ.get('DIAGNOSTIC_LINK', 'https://t.me/valeriasereda')
 
 if not TOKEN:
     raise ValueError("Переменная окружения BOT_TOKEN не задана!")
 
 # ================== ПУТИ К ФАЙЛАМ ==================
-# Папка files должна лежать рядом с app.py
 CHECKLIST_PDF = "files/checklist_spasatel.pdf"
 AUDIO_FILES = {
     "track1": {
@@ -109,27 +107,6 @@ async def is_subscribed(bot, user_id):
         logging.error(f"Ошибка проверки подписки для {user_id}: {e}")
         return False
 
-async def ensure_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not await is_subscribed(context.bot, user_id):
-        keyboard = [
-            [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID.replace('@', '')}")],
-            [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_sub")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                "⚠️ Чтобы участвовать в челлендже, подпишитесь на мой канал.",
-                reply_markup=reply_markup
-            )
-        else:
-            await update.message.reply_text(
-                "⚠️ Чтобы участвовать в челлендже, подпишитесь на мой канал.",
-                reply_markup=reply_markup
-            )
-        return False
-    return True
-
 # ================== ПЛАНИРОВЩИК ==================
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -169,12 +146,34 @@ logger = logging.getLogger(__name__)
 application = Application.builder().token(TOKEN).build()
 
 # ================== ОБРАБОТЧИКИ ==================
+
+# --- НОВОЕ ТЁПЛОЕ ПРИВЕТСТВИЕ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not get_user(user_id):
         create_user(user_id)
-    if not await ensure_subscription(update, context):
+
+    if not await is_subscribed(context.bot, user_id):
+        welcome_text = (
+            "🌸 Привет, дорогая!\n\n"
+            "Меня зовут Лера, я HR-консультант и автор канала о том, как перестать жить для других и начать выбирать себя.\n\n"
+            "Я создала этот бот, чтобы помочь тебе заметить, где ты теряешь себя в ролях «удобной», «спасательницы» и «отличницы».\n\n"
+            "Здесь ты сможешь:\n"
+            "📋 Получить чек-лист «10 признаков Спасателя» — чтобы увидеть свои паттерны.\n"
+            "🗓 Пройти бесплатный 5-дневный челлендж «5 дней ясности» — с заданиями и голосовыми поддержками.\n"
+            "💬 Написать мне лично, если захочешь разобрать свою ситуацию глубже.\n\n"
+            "Чтобы получить доступ ко всем материалам, **подпишись на мой канал** — там я делюсь инсайтами и анонсами. Это бесплатно и займёт 5 секунд.\n\n"
+            "👇 Нажми «Подписаться», а затем «Проверить подписку»."
+        )
+        keyboard = [
+            [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID.replace('@', '')}")],
+            [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_sub")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
         return
+
+    # Если подписана – сразу меню
     keyboard = [
         [InlineKeyboardButton("📋 Чек-лист «Спасатель»", callback_data="checklist")],
         [InlineKeyboardButton("🗓 Челлендж «5 дней»", callback_data="challenge")],
@@ -182,10 +181,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🌸 Привет! Я бот-помощник «Точки опоры».\nВыберите, что хотите получить:",
+        "🌸 Привет! Я бот-помощник «Точки опоры».\nВыбери, что хочешь получить:",
         reply_markup=reply_markup
     )
 
+# --- ОБРАБОТЧИК КНОПОК (С ИСПРАВЛЕННОЙ КНОПКОЙ ПРОВЕРКИ) ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -193,16 +193,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "check_sub":
-        if await ensure_subscription(update, context):
+        if await is_subscribed(context.bot, user_id):
             keyboard = [
                 [InlineKeyboardButton("📋 Чек-лист «Спасатель»", callback_data="checklist")],
                 [InlineKeyboardButton("🗓 Челлендж «5 дней»", callback_data="challenge")],
                 [InlineKeyboardButton("💬 Написать Лере", url=DIAGNOSTIC_LINK)]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text("✅ Подписка подтверждена! Выберите действие:", reply_markup=reply_markup)
+            await query.edit_message_text(
+                "🌸 Супер! Подписка подтверждена. Теперь ты можешь пользоваться всеми материалами.\n\nВыбери, что хочешь получить:",
+                reply_markup=reply_markup
+            )
+        else:
+            keyboard = [
+                [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID.replace('@', '')}")],
+                [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_sub")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "💔 Ты ещё не подписалась на канал. Это важно, потому что именно там я делюсь всеми новыми материалами и анонсами.\n\n"
+                "Пожалуйста, подпишись и нажми «Проверить подписку» снова.",
+                reply_markup=reply_markup
+            )
         return
 
+    # Остальные обработчики (checklist, challenge, test_)
     if not await is_subscribed(context.bot, user_id):
         await query.edit_message_text("⚠️ Вы отписались от канала. Подпишитесь, чтобы продолжить.")
         keyboard = [[InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID.replace('@', '')}")]]
@@ -221,6 +236,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("Неизвестная команда.")
 
+# --- Чек-лист ---
 async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
@@ -245,6 +261,7 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except FileNotFoundError:
         await query.edit_message_text("❌ Файл временно недоступен. Попробуйте позже.")
 
+# --- Запуск челленджа ---
 async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
@@ -270,7 +287,7 @@ async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text("Отлично! Давайте начнём с теста «Индекс потери себя». Ответьте честно – это поможет подобрать подходящий трек.")
     await send_question(update, context, question_index=0)
 
-# --- Тест: вопросы ---
+# --- Тест ---
 questions = [
     {
         "text": "Когда в последний раз вы делали что-то только для себя, без оглядки на других?",
@@ -432,7 +449,6 @@ async def send_morning_task(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     text = MORNING_TEXTS.get((track, day), "Утреннее задание для этого дня ещё не подготовлено.")
     await context.bot.send_message(chat_id=user_id, text=text)
 
-    # Запланировать вечернее аудио через 8 часов
     evening_delay = 8 * 3600
     audio_path = AUDIO_FILES[f"track{track}"][f"day{day}_evening"]
     scheduler.add_job(
@@ -459,7 +475,6 @@ async def send_evening_audio(chat_id, audio_path, track, day):
         if day == 5:
             await send_final_invitation(chat_id)
         else:
-            # Планируем следующее утро через 16 часов после вечера (т.е. утро следующего дня)
             next_morning_delay = 16 * 3600
             if day < 5:
                 scheduler.add_job(
@@ -485,7 +500,6 @@ async def send_morning_task_by_chat(chat_id, track, day):
     text = MORNING_TEXTS.get((track, day), "Утреннее задание для этого дня ещё не подготовлено.")
     await bot.send_message(chat_id=chat_id, text=text)
 
-    # Запланировать вечер этого же дня через 8 часов
     evening_delay = 8 * 3600
     audio_path = AUDIO_FILES[f"track{track}"][f"day{day}_evening"]
     scheduler.add_job(
@@ -515,7 +529,7 @@ async def send_final_invitation(chat_id):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
 
-# ================== ЗАПУСК (LONG POLLING) ==================
+# ================== ЗАПУСК ==================
 def main():
     init_db()
     application.add_handler(CommandHandler("start", start))
