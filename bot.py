@@ -138,7 +138,7 @@ async def is_subscribed(bot, user_id):
         return False
 
 # ================== ПЛАНИРОВЩИК ==================
-scheduler = BackgroundScheduler()
+scheduler = AsyncIOScheduler()
 scheduler.start()
 
 def schedule_message(chat_id, text, delay_seconds, reply_markup=None):
