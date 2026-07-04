@@ -313,7 +313,7 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if query:
             await query.edit_message_text(
-                "🌺 Чек-лист уже у тебя! Через 5 минут я спрошу, как дела, а через час напомню, если не решишься начать. Ты в центре внимания 💖"
+                "🌺 Чек-лист уже у тебя! Скоро вернусь к тебе, а ты пока изучи чек лист и посмотри насколько откликается 💖"
             )
     except Exception as e:
         logger.error(f"Ошибка отправки чек-листа: {e}")
