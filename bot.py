@@ -195,7 +195,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🌸 С возвращением! Я бот-помощник «Точки опоры».\nЧто хочешь получить сегодня?",
+        "🌸 С возвращением! Я навигатор-бот.\nЧто хочешь получить сегодня?",
         reply_markup=reply_markup
     )
 
@@ -212,7 +212,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [
                 [InlineKeyboardButton("📋 Чек-лист «Спасатель»", callback_data="checklist")],
                 [InlineKeyboardButton("🗓 Челлендж «5 дней»", callback_data="challenge")],
-                [InlineKeyboardButton("💬 Написать Лере", url=DIAGNOSTIC_LINK)]
+                [InlineKeyboardButton("💬 Написать мне", url=DIAGNOSTIC_LINK)]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
