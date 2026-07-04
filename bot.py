@@ -16,8 +16,29 @@ DIAGNOSTIC_LINK = os.environ.get('DIAGNOSTIC_LINK', 'https://t.me/valeriasereda'
 if not TOKEN:
     raise ValueError("Переменная окружения BOT_TOKEN не задана!")
 
-# ================== ПУТИ К ФАЙЛАМ ==================
-CHECKLIST_PDF = "checklist_spasatel.pdf"
+# ================== ПУТИ К ФАЙЛАМ (С ПРОВЕРКОЙ) ==================
+def find_file(filename):
+    """Ищет файл в разных местах и возвращает путь, если найден."""
+    # Список возможных путей
+    possible_paths = [
+        filename,  # просто в корне
+        os.path.join('files', filename),  # в папке files
+        os.path.join('app', filename),  # в папке app
+        os.path.join('my_bot', filename),  # в папке my_bot
+        os.path.join('..', filename),  # на уровень выше
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+# Ищем файл чек-листа
+CHECKLIST_PDF_PATH = find_file("checklist_spasatel.pdf")
+if CHECKLIST_PDF_PATH:
+    logging.info(f"Чек-лист найден: {CHECKLIST_PDF_PATH}")
+else:
+    logging.warning("Чек-лист не найден! Проверь, что файл checklist_spasatel.pdf загружен.")
+
 AUDIO_FILES = {
     "track1": {
         "day1_evening": "track1_day1_evening.ogg",
@@ -46,7 +67,6 @@ AUDIO_FILES = {
 def init_db():
     conn = sqlite3.connect('database.db')
     c = conn.cursor()
-    # Создаём таблицу
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -61,7 +81,6 @@ def init_db():
             finished BOOLEAN DEFAULT 0
         )
     ''')
-    # Проверяем наличие новых полей и добавляем, если их нет
     c.execute("PRAGMA table_info(users)")
     columns = [col[1] for col in c.fetchall()]
     if 'reminder_5min_sent' not in columns:
@@ -136,10 +155,8 @@ def schedule_message(chat_id, text, delay_seconds, reply_markup=None):
 async def send_scheduled_message(chat_id, text, reply_markup):
     try:
         bot = application.bot
-        # Проверяем, не начат ли челлендж
         user = get_user(chat_id)
         if user and user['challenge_started']:
-            # Если челлендж уже начат, напоминания не отправляем
             return
         if await is_subscribed(bot, chat_id):
             await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
@@ -191,11 +208,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📋 Чек-лист «Спасатель»", callback_data="checklist")],
         [InlineKeyboardButton("🗓 Челлендж «5 дней»", callback_data="challenge")],
-        [InlineKeyboardButton("💬 Написать Лере", url=DIAGNOSTIC_LINK)]
+        [InlineKeyboardButton("💬 Написать мне", url=DIAGNOSTIC_LINK)]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🌸 С возвращением! Я навигатор-бот.\nЧто хочешь получить сегодня?",
+        "🌸 С возвращением! Я Навигатор-бот.\nЧто хочешь получить сегодня?",
         reply_markup=reply_markup
     )
 
@@ -212,7 +229,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [
                 [InlineKeyboardButton("📋 Чек-лист «Спасатель»", callback_data="checklist")],
                 [InlineKeyboardButton("🗓 Челлендж «5 дней»", callback_data="challenge")],
-                [InlineKeyboardButton("💬 Написать мне", url=DIAGNOSTIC_LINK)]
+                [InlineKeyboardButton("💬 Написать Лере", url=DIAGNOSTIC_LINK)]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
@@ -250,12 +267,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("Неизвестная команда 🤔")
 
-# --- Чек-лист ---
+# --- Чек-лист (с поиском файла) ---
 async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
+
+    # Ищем файл
+    file_path = find_file("checklist_spasatel.pdf")
+    if not file_path:
+        await query.edit_message_text(
+            "❌ Ой, файл с чек-листом не найден... Я уже проверяю, что случилось. Попробуй чуть позже, хорошо? 🌸\n\n"
+            "💡 Если ты загружала файл в папку `files`, перезагрузи бота, и всё заработает!"
+        )
+        logger.error(f"Файл checklist_spasatel.pdf не найден! Текущая директория: {os.getcwd()}, файлы: {os.listdir('.')}")
+        return
+
     try:
-        with open(CHECKLIST_PDF, 'rb') as f:
+        with open(file_path, 'rb') as f:
             await context.bot.send_document(
                 chat_id=update.effective_chat.id,
                 document=f,
@@ -265,7 +293,6 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now()
         update_user(user_id, checklist_sent_time=now)
 
-        # Через 5 минут: тёплое сообщение с вопросом
         text_5min = (
             "🌸 Ну что, дорогая? Сколько пунктов совпало? 😊\n\n"
             "Если больше трёх – я очень рекомендую пройти мой бесплатный челлендж «5 дней ясности».\n"
@@ -276,7 +303,6 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         schedule_message(update.effective_chat.id, text_5min, 300, reply_markup)
 
-        # Через 1 час: второе напоминание с грустным настроем
         text_1hour = (
             "🌷 Милая, я вижу, что ты пока не решилась…\n\n"
             "Знаешь, мне очень грустно смотреть на ситуации, когда собственная жизнь откладывается на потом.\n"
@@ -289,8 +315,9 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 "🌺 Чек-лист уже у тебя! Через 5 минут я спрошу, как дела, а через час напомню, если не решишься начать. Ты в центре внимания 💖"
             )
-    except FileNotFoundError:
-        await query.edit_message_text("❌ Ой, что-то пошло не так с файлом. Я уже разбираюсь, попробуй чуть позже, хорошо? 🌸")
+    except Exception as e:
+        logger.error(f"Ошибка отправки чек-листа: {e}")
+        await query.edit_message_text("❌ Что-то пошло не так при отправке файла. Попробуй ещё раз или напиши мне @valeriasereda, я помогу 🌸")
 
 # --- Запуск челленджа ---
 async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
