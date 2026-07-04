@@ -202,7 +202,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, reply_markup=reply_markup)
         return
 
-    # Если пользователь уже подписан – информативное приветствие
     keyboard = [
         [InlineKeyboardButton("📋 Чек-лист «Спасатель»", callback_data="checklist")],
         [InlineKeyboardButton("🗓 Челлендж «5 дней»", callback_data="challenge")],
@@ -271,16 +270,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("Неизвестная команда 🤔")
 
-# --- Чек-лист ---
+# --- Чек-лист (НЕ редактируем сообщение меню, а отправляем новое) ---
 async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
 
     file_path = find_file("checklist_spasatel.pdf")
     if not file_path:
-        await query.edit_message_text(
-            "❌ Ой, файл с чек-листом не найден... Я уже проверяю, что случилось. Попробуй чуть позже, хорошо? 🌸\n\n"
-            "💡 Если ты загружала файл в папку `files`, перезагрузи бота, и всё заработает!"
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ой, файл с чек-листом не найден... Я уже проверяю, что случилось. Попробуй чуть позже, хорошо? 🌸\n\n"
+                 "💡 Если ты загружала файл в папку `files`, перезагрузи бота, и всё заработает!"
         )
         logger.error(f"Файл checklist_spasatel.pdf не найден! Текущая директория: {os.getcwd()}, файлы: {os.listdir('.')}")
         return
@@ -296,6 +296,13 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now()
         update_user(user_id, checklist_sent_time=now)
 
+        # Отправляем подтверждение новым сообщением (не редактируем меню)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="🌺 Чек-лист уже у тебя! Скоро вернусь к тебе, а ты пока изучи чек лист и посмотри насколько откликается 💖"
+        )
+
+        # Отложенные сообщения через 1 минуту и 1 час
         text_1min = (
             "🌸 Ну что, дорогая? Сколько пунктов совпало? 😊\n\n"
             "Если больше трёх – я очень рекомендую пройти мой бесплатный челлендж «5 дней ясности».\n"
@@ -314,14 +321,12 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         schedule_message(update.effective_chat.id, text_1hour, 3600, reply_markup)
 
-        if query:
-            await asyncio.sleep(2)
-            await query.edit_message_text(
-                "🌺 Чек-лист уже у тебя! Скоро вернусь к тебе, а ты пока изучи чек лист и посмотри насколько откликается 💖"
-            )
     except Exception as e:
         logger.error(f"Ошибка отправки чек-листа: {e}")
-        await query.edit_message_text("❌ Что-то пошло не так при отправке файла. Попробуй ещё раз или напиши мне @valeriasereda, я помогу 🌸")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Что-то пошло не так при отправке файла. Попробуй ещё раз или напиши мне @valeriasereda, я помогу 🌸"
+        )
 
 # --- Запуск челленджа ---
 async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -443,21 +448,14 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     new_score = user['score'] + points
     update_user(user_id, score=new_score)
 
+    # Редактируем сообщение, показываем фидбек (но не удаляем)
     await query.edit_message_text(f"✅ Выбрано: {questions[q_idx]['options'][int(opt_idx)][0]}")
-    await asyncio.sleep(2)
-
-    try:
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id,
-            message_id=query.message.message_id
-        )
-    except Exception as e:
-        logger.warning(f"Не удалось удалить сообщение с фидбеком: {e}")
 
     if q_idx + 1 < len(questions):
+        await asyncio.sleep(1.5)
         await send_question(update, context, q_idx + 1)
     else:
-        await asyncio.sleep(2)
+        await asyncio.sleep(1.5)
         await update.effective_chat.send_message("🌸 Тест завершён! Сейчас я скажу, какой трек тебе подходит 💖")
         await asyncio.sleep(2)
         await process_test_result(update, context)
@@ -490,7 +488,14 @@ async def process_test_result(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     result_text = f"🌸 Твой результат: {score} баллов.\n\n{track_desc}\n\nТеперь начинаем челлендж! Сегодня – день 1. Готова? 💖"
     await update.effective_chat.send_message(result_text)
-    await asyncio.sleep(5)
+    await asyncio.sleep(2)
+
+    # Напоминание о закреплении чата
+    await update.effective_chat.send_message(
+        "💡 Важный совет: закрепи этот чат в Telegram (нажми на название чата и выбери «Закрепить»), чтобы не потерять его в течение 5 дней челленджа. Я буду присылать тебе задания и голосовые сообщения каждый день, и они не затеряются 🌸"
+    )
+
+    await asyncio.sleep(2)
     await send_morning_task(update, context, track, 1)
 
 # ===== Тексты утренних заданий =====
