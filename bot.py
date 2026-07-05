@@ -38,25 +38,25 @@ else:
 
 AUDIO_FILES = {
     "track1": {
-        "day1_evening": "track1_day1_evening.ogg",
-        "day2_evening": "track1_day2_evening.ogg",
-        "day3_evening": "track1_day3_evening.ogg",
-        "day4_evening": "track1_day4_evening.ogg",
-        "day5_evening": "track1_day5_evening.ogg",
+        "day1_evening": "files/track1_day1_evening.ogg",
+        "day2_evening": "files/track1_day2_evening.ogg",
+        "day3_evening": "files/track1_day3_evening.ogg",
+        "day4_evening": "files/track1_day4_evening.ogg",
+        "day5_evening": "files/track1_day5_evening.ogg",
     },
     "track2": {
-        "day1_evening": "track2_day1_evening.ogg",
-        "day2_evening": "track2_day2_evening.ogg",
-        "day3_evening": "track2_day3_evening.ogg",
-        "day4_evening": "track2_day4_evening.ogg",
-        "day5_evening": "track2_day5_evening.ogg",
+        "day1_evening": "files/track2_day1_evening.ogg",
+        "day2_evening": "files/track2_day2_evening.ogg",
+        "day3_evening": "files/track2_day3_evening.ogg",
+        "day4_evening": "files/track2_day4_evening.ogg",
+        "day5_evening": "files/track2_day5_evening.ogg",
     },
     "track3": {
-        "day1_evening": "track3_day1_evening.ogg",
-        "day2_evening": "track3_day2_evening.ogg",
-        "day3_evening": "track3_day3_evening.ogg",
-        "day4_evening": "track3_day4_evening.ogg",
-        "day5_evening": "track3_day5_evening.ogg",
+        "day1_evening": "files/track3_day1_evening.ogg",
+        "day2_evening": "files/track3_day2_evening.ogg",
+        "day3_evening": "files/track3_day3_evening.ogg",
+        "day4_evening": "files/track3_day4_evening.ogg",
+        "day5_evening": "files/track3_day5_evening.ogg",
     }
 }
 
@@ -328,7 +328,6 @@ async def send_checklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Вступительное сообщение перед тестом ---
 async def send_challenge_intro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет вводное сообщение о челлендже и запускает тест."""
     chat_id = update.effective_chat.id
     intro_text = (
         "🌸 Я рада, что ты решила пройти челлендж «5 дней ясности»!\n\n"
@@ -338,11 +337,10 @@ async def send_challenge_intro(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     await context.bot.send_message(chat_id=chat_id, text=intro_text)
     await asyncio.sleep(2)
-    # Инициализируем хранение id фидбека
     context.user_data['last_feedback_id'] = None
     await send_question(update, context, question_index=0)
 
-# --- Запуск челленджа (единая точка входа) ---
+# --- Запуск челленджа ---
 async def handle_challenge_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
@@ -462,7 +460,6 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     new_score = user['score'] + points
     update_user(user_id, score=new_score)
 
-    # Удаляем предыдущий фидбек, если он есть
     last_feedback_id = context.user_data.get('last_feedback_id')
     if last_feedback_id:
         try:
@@ -474,9 +471,7 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.warning(f"Не удалось удалить предыдущий фидбек: {e}")
         context.user_data['last_feedback_id'] = None
 
-    # Редактируем текущее сообщение в фидбек
     await query.edit_message_text(f"✅ Выбрано: {questions[q_idx]['options'][int(opt_idx)][0]}")
-    # Сохраняем его id для последующего удаления
     context.user_data['last_feedback_id'] = query.message.message_id
 
     if q_idx + 1 < len(questions):
@@ -488,7 +483,6 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             chat_id=update.effective_chat.id,
             text="🌸 Тест завершён! Сейчас я скажу, какой трек тебе подходит 💖"
         )
-        # Фидбек последнего вопроса остаётся
         await asyncio.sleep(2)
         await process_test_result(update, context)
 
@@ -549,7 +543,7 @@ MORNING_TEXTS = {
     (3,5): "🕯️ День 5. Первый контакт с желанием\n\nТы долго обслуживала чужие сценарии. Сегодня — только ты.\n\nЗадание:\n- Подумай: что бы ты сделала сегодня, если бы никто не ждал от тебя результата? Не «что полезно», а «что приятно».\n- Выбери одно микро-действие. Очень маленькое. Без цели и смысла. Просто для удовольствия: съесть любимое пирожное, не думая о калориях; включить музыку и танцевать; купить себе цветок; лечь в кровать в 19:00 и смотреть глупый сериал.\n- Сделай это. И не объясняй никому 🌸"
 }
 
-# --- Отправка утренних заданий ---
+# --- Отправка утренних заданий (с проверкой аудиофайлов) ---
 async def send_morning_task(update: Update, context: ContextTypes.DEFAULT_TYPE, track: int, day: int):
     user_id = update.effective_chat.id
     if not await is_subscribed(context.bot, user_id):
@@ -566,13 +560,23 @@ async def send_morning_task(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await context.bot.send_message(chat_id=user_id, text=text)
     await asyncio.sleep(2)
 
-    evening_delay = 8 * 3600
+    # Проверяем наличие аудиофайла
     audio_path = AUDIO_FILES[f"track{track}"][f"day{day}_evening"]
+    if not os.path.exists(audio_path):
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Ой, аудиофайл для сегодняшнего вечера не найден. Я уже разбираюсь, попробуй позже 🌸"
+        )
+        logger.error(f"Аудиофайл не найден: {audio_path}")
+        return
+
+    evening_delay = 8 * 3600
     scheduler.add_job(
         send_evening_audio,
         trigger=DateTrigger(run_date=datetime.now() + timedelta(seconds=evening_delay)),
         args=[user_id, audio_path, track, day]
     )
+    logger.info(f"Запланировано вечернее аудио для {user_id} на {datetime.now() + timedelta(seconds=evening_delay)}")
 
 async def send_evening_audio(chat_id, audio_path, track, day):
     try:
@@ -589,6 +593,7 @@ async def send_evening_audio(chat_id, audio_path, track, day):
 
         with open(audio_path, 'rb') as f:
             await bot.send_voice(chat_id=chat_id, voice=f, caption="🌙 Вечернее голосовое сообщение для тебя – слушай с душой 💖")
+        logger.info(f"Отправлено вечернее аудио для {chat_id} (трек {track}, день {day})")
         if day == 5:
             await send_final_invitation(chat_id)
         else:
@@ -599,6 +604,12 @@ async def send_evening_audio(chat_id, audio_path, track, day):
                     trigger=DateTrigger(run_date=datetime.now() + timedelta(seconds=next_morning_delay)),
                     args=[chat_id, track, day+1]
                 )
+    except FileNotFoundError:
+        logger.error(f"Аудиофайл не найден при отправке: {audio_path}")
+        await bot.send_message(
+            chat_id=chat_id,
+            text="❌ Ой, файл с голосовым сообщением не найден. Я уже проверяю, что случилось. Попробуй позже 🌸"
+        )
     except Exception as e:
         logging.error(f"Ошибка отправки аудио: {e}")
 
@@ -618,13 +629,22 @@ async def send_morning_task_by_chat(chat_id, track, day):
     await bot.send_message(chat_id=chat_id, text=text)
     await asyncio.sleep(2)
 
-    evening_delay = 8 * 3600
     audio_path = AUDIO_FILES[f"track{track}"][f"day{day}_evening"]
+    if not os.path.exists(audio_path):
+        await bot.send_message(
+            chat_id=chat_id,
+            text="❌ Ой, аудиофайл для сегодняшнего вечера не найден. Я уже разбираюсь, попробуй позже 🌸"
+        )
+        logger.error(f"Аудиофайл не найден: {audio_path}")
+        return
+
+    evening_delay = 8 * 3600
     scheduler.add_job(
         send_evening_audio,
         trigger=DateTrigger(run_date=datetime.now() + timedelta(seconds=evening_delay)),
         args=[chat_id, audio_path, track, day]
     )
+    logger.info(f"Запланировано вечернее аудио для {chat_id} на {datetime.now() + timedelta(seconds=evening_delay)}")
 
 async def send_final_invitation(chat_id):
     bot = application.bot
